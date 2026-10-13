@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f8a4a">
+<meta name="description" content="Run/walk interval timer that beeps at every switch.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>*{box-sizing:border-box}body{margin:0}[hidden]{display:none!important}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box}</style>
+<title>Pacer Beep</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=Barlow:wght@400;500;600&display=swap">
+<style>
+/* Layout: one-screen stopwatch. Interval chips on top, a full-bleed phase panel in the middle, thumb-sized controls at the bottom. */
+:root {
+  --bg: #f3f5f2;
+  --surface: #ffffff;
+  --fg: #16201a;
+  --muted: #5d6b62;
+  --line: #d6ddd7;
+  --run: #0f8a4a;
+  --walk: #1f4fb8;
+  --ready: #b86a0c;
+  --on-phase: #ffffff;
+  --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --body: "Barlow", "Segoe UI", Roboto, system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1310; --surface: #171e1a; --fg: #e8eee9; --muted: #95a39a; --line: #2a342e;
+    --run: #17a35b; --walk: #3a6ee0; --ready: #d1841e; --on-phase: #ffffff; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1310; --surface: #171e1a; --fg: #e8eee9; --muted: #95a39a; --line: #2a342e;
+  --run: #17a35b; --walk: #3a6ee0; --ready: #d1841e; --on-phase: #ffffff; color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px;
+  -webkit-tap-highlight-color: transparent; user-select: none;
+}
+.app {
+  height: 100%; max-width: 560px; margin: 0 auto; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 18px;
+}
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+h1 { font-family: var(--display); font-weight: 800; font-size: 26px; letter-spacing: .02em; margin: 0; text-transform: uppercase; }
+.hint { color: var(--muted); font-size: 13px; }
+
+.presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  font: 600 15px var(--body); color: var(--fg); background: var(--surface);
+  border: 1.5px solid var(--line); border-radius: 999px; padding: 8px 14px; cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.chip[aria-pressed="true"] { border-color: var(--fg); background: var(--fg); color: var(--bg); }
+
+.steppers { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stepper {
+  background: var(--surface); border: 1.5px solid var(--line); border-radius: 14px;
+  padding: 8px 10px; display: grid; grid-template-columns: 44px 1fr 44px; align-items: center;
+}
+.stepper .lbl { grid-column: 1 / -1; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.stepper .lbl i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+.stepper .val { text-align: center; font: 800 30px var(--display); font-variant-numeric: tabular-nums; }
+.stepper button {
+  width: 44px; height: 44px; border-radius: 50%; border: 1.5px solid var(--line);
+  background: transparent; color: var(--fg); font: 600 24px var(--body); cursor: pointer; line-height: 1;
+}
+.stepper button:disabled, .chip:disabled { opacity: .4; cursor: not-allowed; }
+
+.panel {
+  flex: 1; min-height: 220px; border-radius: 22px; position: relative; overflow: hidden;
+  background: var(--surface); border: 1.5px solid var(--line);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  transition: background-color .25s ease;
+}
+.panel .phase { font: 800 clamp(64px, 22vw, 128px)/0.9 var(--display); letter-spacing: .03em; text-transform: uppercase; }
+.panel .count { font: 600 clamp(56px, 20vw, 112px)/1 var(--display); font-variant-numeric: tabular-nums; }
+.panel .sub { color: var(--muted); font-size: 15px; font-weight: 500; text-align: center; padding: 0 16px; }
+.bar { position: absolute; left: 0; bottom: 0; height: 10px; width: 0; background: currentColor; opacity: .35; }
+body.run .panel { background: var(--run); border-color: var(--run); color: var(--on-phase); }
+body.walk .panel { background: var(--walk); border-color: var(--walk); color: var(--on-phase); }
+body.ready .panel { background: var(--ready); border-color: var(--ready); color: var(--on-phase); }
+body.run .panel .sub, body.walk .panel .sub, body.ready .panel .sub { color: var(--on-phase); opacity: .85; }
+
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+.stats div { display: flex; flex-direction: column; gap: 2px; }
+.stats b { font: 800 26px var(--display); font-variant-numeric: tabular-nums; }
+.stats span { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+.controls { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; }
+.btn {
+  height: 68px; border-radius: 18px; border: 0; cursor: pointer;
+  font: 800 26px var(--display); letter-spacing: .06em; text-transform: uppercase;
+}
+.btn.go { background: var(--run); color: var(--on-phase); }
+.btn.go.paused { background: var(--fg); color: var(--bg); }
+.btn.stop { background: var(--surface); color: var(--fg); border: 1.5px solid var(--line); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+button:focus-visible { outline: 3px solid var(--ready); outline-offset: 2px; }
+
+.opts { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; color: var(--muted); font-size: 14px; }
+.opts label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.opts input { width: 18px; height: 18px; accent-color: var(--run); }
+.note { font-size: 12px; color: var(--muted); }
+
+/* While running, hide setup so the phase panel owns the screen. */
+body.active .setup { display: none; }
+@media (prefers-reduced-motion: reduce) { .panel { transition: none; } }
+</style>
+</head>
+<body>
+
+
+<div class="app">
+  <header>
+    <h1>Pacer Beep</h1>
+    <span class="hint" id="wakeNote">Run / walk interval timer</span>
+  </header>
+
+  <div class="setup">
+    <div class="presets" id="presets" role="group" aria-label="Interval presets"></div>
+  </div>
+  <div class="setup steppers">
+    <div class="stepper">
+      <div class="lbl"><i style="background:var(--run)"></i>Run</div>
+      <button id="runMinus" aria-label="Shorter run">−</button>
+      <div class="val" id="runVal">0:30</div>
+      <button id="runPlus" aria-label="Longer run">+</button>
+    </div>
+    <div class="stepper">
+      <div class="lbl"><i style="background:var(--walk)"></i>Walk</div>
+      <button id="walkMinus" aria-label="Shorter walk">−</button>
+      <div class="val" id="walkVal">0:30</div>
+      <button id="walkPlus" aria-label="Longer walk">+</button>
+    </div>
+  </div>
+
+  <div class="panel" id="panel" aria-live="polite">
+    <div class="phase" id="phase">Ready</div>
+    <div class="count" id="count">0:30</div>
+    <div class="sub" id="sub">Tap Start. The first beep means run.</div>
+    <div class="bar" id="bar"></div>
+  </div>
+
+  <div class="stats">
+    <div><b id="rep">0</b><span>Interval</span></div>
+    <div><b id="total">0:00</b><span>Total time</span></div>
+    <div><b id="runTotal">0:00</b><span>Time running</span></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn stop" id="stopBtn" disabled>Stop</button>
+    <button class="btn go" id="goBtn">Start</button>
+  </div>
+
+  <div class="setup opts">
+    <label><input type="checkbox" id="ticks"> 3-2-1 ticks before each switch</label>
+    <label><input type="checkbox" id="vibe" checked> Vibrate</label>
+  </div>
+  <div class="setup note">Two high beeps = run. One long low beep = walk. Keep the screen on for the most reliable timing.</div>
+</div>
+
+<script>
+(() => {
+  const PRESETS = [
+    { run: 30, walk: 30, label: "30 / 30" },
+    { run: 60, walk: 30, label: "1:00 / 30" },
+    { run: 90, walk: 30, label: "1:30 / 30" },
+    { run: 240, walk: 60, label: "4:00 / 1:00" },
+  ];
+  const LOOKAHEAD = 120;   // seconds of beeps queued on the audio clock, so throttled timers can't make us late
+  const LEAD_IN = 3;       // seconds of "get ready" before the first run beep
+  const $ = id => document.getElementById(id);
+
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem("pacerbeep." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem("pacerbeep." + k, JSON.stringify(v)); } catch {} },
+  };
+
+  let runSec = store.get("run", 30), walkSec = store.get("walk", 30);
+  $("ticks").checked = store.get("ticks", false);
+  $("vibe").checked = store.get("vibe", true);
+
+  // ---- state ----
+  let ctx = null, bus = null, keepAlive = null, silentEl = null, wakeLock = null;
+  let status = "idle";         // idle | running | paused
+  let startAt = 0;             // ctx time at which elapsed = 0
+  let pausedElapsed = 0;
+  let scheduledUntil = -Infinity;
+  let schedTimer = null, raf = null, lastPhaseKey = "";
+
+  const fmt = s => { s = Math.max(0, Math.floor(s)); const m = Math.floor(s / 60); return m + ":" + String(s % 60).padStart(2, "0"); };
+  const fmtCount = s => s >= 60 ? fmt(Math.ceil(s)) : String(Math.ceil(s));
+
+  // ---- setup UI ----
+  function renderSetup() {
+    $("runVal").textContent = fmt(runSec);
+    $("walkVal").textContent = fmt(walkSec);
+    const box = $("presets"); box.innerHTML = "";
+    let matched = false;
+    for (const p of PRESETS) {
+      const b = document.createElement("button");
+      b.className = "chip"; b.textContent = p.label;
+      const on = p.run === runSec && p.walk === walkSec; matched ||= on;
+      b.setAttribute("aria-pressed", on);
+      b.onclick = () => { runSec = p.run; walkSec = p.walk; save(); renderSetup(); renderIdle(); };
+      box.appendChild(b);
+    }
+    if (!matched) { const c = document.createElement("button"); c.className = "chip"; c.textContent = "Custom " + fmt(runSec) + " / " + fmt(walkSec); c.setAttribute("aria-pressed", "true"); box.appendChild(c); }
+  }
+  const step = v => v < 60 ? 5 : 15;
+  $("runPlus").onclick  = () => { runSec  = Math.min(600, runSec  + step(runSec));  save(); renderSetup(); renderIdle(); };
+  $("runMinus").onclick = () => { runSec  = Math.max(5,   runSec  - step(runSec - 1)); save(); renderSetup(); renderIdle(); };
+  $("walkPlus").onclick = () => { walkSec = Math.min(600, walkSec + step(walkSec)); save(); renderSetup(); renderIdle(); };
+  $("walkMinus").onclick= () => { walkSec = Math.max(5,   walkSec - step(walkSec - 1)); save(); renderSetup(); renderIdle(); };
+  $("ticks").onchange = e => { store.set("ticks", e.target.checked); };
+  $("vibe").onchange = e => { store.set("vibe", e.target.checked); };
+  function save() { store.set("run", runSec); store.set("walk", walkSec); }
+
+  // ---- audio ----
+  function ensureAudio() {
+    if (ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -6; comp.ratio.value = 4;
+    comp.connect(ctx.destination);
+    ctx._out = comp;
+    // An inaudible continuous tone keeps the audio session alive so Android doesn't suspend us.
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.value = 30; g.gain.value = 0.0005; o.connect(g).connect(ctx.destination); o.start();
+    keepAlive = o;
+  }
+  function newBus() {
+    if (bus) { try { bus.disconnect(); } catch {} }
+    bus = ctx.createGain(); bus.gain.value = 1; bus.connect(ctx._out);
+  }
+  function tone(t, freq, dur, vol = 0.9, type = "square") {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.01);
+    g.gain.setValueAtTime(vol, t + dur - 0.03);
+    g.gain.linearRampToValueAtTime(0, t + dur);
+    o.connect(g).connect(bus); o.start(t); o.stop(t + dur + 0.02);
+  }
+  const runBeep  = t => { tone(t, 1250, 0.2); tone(t + 0.28, 1650, 0.32); };
+  const walkBeep = t => { tone(t, 620, 0.75, 0.95); };
+  const tick     = t => { tone(t, 900, 0.07, 0.45, "sine"); };
+
+  // Silent looping <audio> gives Chrome a media session, which helps keep the tab alive with the screen off.
+  function silentWavUrl() {
+    const rate = 8000, n = rate; const buf = new ArrayBuffer(44 + n * 2); const v = new DataView(buf);
+    const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVEfmt "); v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+    v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, (i % 2 ? 1 : -1), true);
+    return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+  }
+  function startSilent() {
+    try {
+      if (!silentEl) { silentEl = new Audio(silentWavUrl()); silentEl.loop = true; silentEl.volume = 0.01; }
+      silentEl.play().catch(() => {});
+      if ("mediaSession" in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({ title: "Pacer Beep", artist: "Run " + fmt(runSec) + " · Walk " + fmt(walkSec) });
+        navigator.mediaSession.setActionHandler("pause", () => { if (status === "running") pause(); });
+        navigator.mediaSession.setActionHandler("play", () => { if (status === "paused") resume(); });
+      }
+    } catch {}
+  }
+  function stopSilent() { try { silentEl && silentEl.pause(); } catch {} }
+
+  // ---- wake lock ----
+  async function lockScreen() {
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLock = await navigator.wakeLock.request("screen");
+        $("wakeNote").textContent = "Screen will stay on";
+        wakeLock.addEventListener("release", () => { wakeLock = null; });
+      }
+    } catch { $("wakeNote").textContent = "Set screen timeout long, or keep it on"; }
+  }
+  function unlockScreen() { try { wakeLock && wakeLock.release(); } catch {} wakeLock = null; }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && status === "running") { lockScreen(); if (ctx.state !== "running") ctx.resume(); schedule(); }
+  });
+
+  // ---- scheduling (everything is measured on the audio clock) ----
+  const cycle = () => runSec + walkSec;
+  function schedule() {
+    if (status !== "running") return;
+    const now = ctx.currentTime - startAt;
+    const horizon = now + LOOKAHEAD, c = cycle(), wantTicks = $("ticks").checked;
+    let k = Math.max(0, Math.floor(Math.max(scheduledUntil, 0) / c));
+    for (; k * c <= horizon; k++) {
+      const marks = [[k * c, "run", walkSec], [k * c + runSec, "walk", runSec]];
+      for (const [b, kind, prevLen] of marks) {
+        if (wantTicks && prevLen >= 8 && k + (kind === "walk" ? 1 : 0) > 0) {
+          for (const d of [3, 2, 1]) { const tb = b - d; if (tb > scheduledUntil && tb <= horizon && tb >= now - 0.05) tick(startAt + tb); }
+        }
+        if (b > scheduledUntil && b <= horizon && b >= now - 0.05) (kind === "run" ? runBeep : walkBeep)(startAt + b);
+      }
+    }
+    scheduledUntil = horizon;
+  }
+
+  function start() {
+    ensureAudio(); ctx.resume(); newBus(); startSilent(); lockScreen();
+    status = "running"; startAt = ctx.currentTime + LEAD_IN; scheduledUntil = -Infinity;
+    // get-ready ticks
+    for (let i = LEAD_IN; i >= 1; i--) tick(startAt - i);
+    schedule();
+    schedTimer = setInterval(schedule, 1000);
+    document.body.classList.add("active");
+    setButtons(); loop();
+  }
+  function pause() {
+    pausedElapsed = ctx.currentTime - startAt;
+    status = "paused"; clearInterval(schedTimer); newBus();   // drops every queued beep
+    stopSilent(); unlockScreen(); setButtons(); draw();
+  }
+  function resume() {
+    ctx.resume(); startSilent(); lockScreen();
+    status = "running"; startAt = ctx.currentTime - pausedElapsed;
+    scheduledUntil = pausedElapsed; schedule();
+    schedTimer = setInterval(schedule, 1000); setButtons(); loop();
+  }
+  function stop() {
+    if (ctx) newBus();
+    status = "idle"; clearInterval(schedTimer); cancelAnimationFrame(raf);
+    stopSilent(); unlockScreen();
+    document.body.className = ""; lastPhaseKey = "";
+    setButtons(); renderIdle();
+  }
+
+  function setButtons() {
+    const g = $("goBtn");
+    g.textContent = status === "running" ? "Pause" : status === "paused" ? "Resume" : "Start";
+    g.classList.toggle("paused", status === "running");
+    $("stopBtn").disabled = status === "idle";
+  }
+  $("goBtn").onclick = () => status === "idle" ? start() : status === "running" ? pause() : resume();
+  $("stopBtn").onclick = stop;
+
+  // ---- display ----
+  function renderIdle() {
+    $("phase").textContent = "Ready"; $("count").textContent = fmt(runSec);
+    $("sub").textContent = "Run " + fmt(runSec) + ", walk " + fmt(walkSec) + ", repeat. Tap Start.";
+    $("bar").style.width = "0"; $("rep").textContent = "0"; $("total").textContent = "0:00"; $("runTotal").textContent = "0:00";
+    $("wakeNote").textContent = "Run / walk interval timer";
+  }
+  function draw() {
+    const e = (status === "paused" ? pausedElapsed : ctx.currentTime - startAt);
+    const body = document.body;
+    if (e < 0) {
+      body.className = "active ready";
+      $("phase").textContent = "Ready"; $("count").textContent = Math.ceil(-e);
+      $("sub").textContent = "Run starts on the beep"; $("bar").style.width = "0";
+      return;
+    }
+    const c = cycle(), k = Math.floor(e / c), into = e - k * c;
+    const isRun = into < runSec;
+    const len = isRun ? runSec : walkSec, left = isRun ? runSec - into : c - into;
+    const key = k + (isRun ? "r" : "w");
+    if (key !== lastPhaseKey) {
+      if (lastPhaseKey && $("vibe").checked && navigator.vibrate && document.visibilityState === "visible") {
+        try { navigator.vibrate(isRun ? [120, 80, 120] : [400]); } catch {}
+      }
+      lastPhaseKey = key;
+    }
+    body.className = "active " + (isRun ? "run" : "walk");
+    $("phase").textContent = status === "paused" ? "Paused" : (isRun ? "Run" : "Walk");
+    $("count").textContent = fmtCount(left);
+    $("sub").textContent = isRun ? "Next: walk " + fmt(walkSec) : "Next: run " + fmt(runSec);
+    $("bar").style.width = ((len - left) / len * 100) + "%";
+    $("rep").textContent = k + 1;
+    $("total").textContent = fmt(e);
+    $("runTotal").textContent = fmt(k * runSec + Math.min(into, runSec));
+  }
+  function loop() { cancelAnimationFrame(raf); if (status !== "running") return; draw(); raf = requestAnimationFrame(loop); }
+
+  renderSetup(); renderIdle(); setButtons();
+})();
+</script>
+
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+</script>
+</body>
+</html>

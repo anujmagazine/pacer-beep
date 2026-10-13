@@ -1,0 +1,16 @@
+{
+  "name": "Pacer Beep",
+  "short_name": "Pacer Beep",
+  "description": "Run/walk interval timer that beeps at every switch.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e1310",
+  "theme_color": "#0f8a4a",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
