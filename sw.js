@@ -1,5 +1,5 @@
 // Offline support: cache the app shell on install, serve cache-first, refresh in the background.
-const CACHE = "pacer-beep-v1";
+const CACHE = "pacer-beep-v2";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable.png"];
 
 self.addEventListener("install", e => {

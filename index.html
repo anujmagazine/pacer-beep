@@ -163,7 +163,7 @@ body.active .setup { display: none; }
     <label><input type="checkbox" id="ticks"> 3-2-1 ticks before each switch</label>
     <label><input type="checkbox" id="vibe" checked> Vibrate</label>
   </div>
-  <div class="setup note">Two high beeps = run. One long low beep = walk. Keep the screen on for the most reliable timing.</div>
+  <div class="setup note">Rising chime (three notes up) = run. Falling chime (two notes down) = walk. Keep the screen on for the most reliable timing.</div>
 </div>
 
 <script>
@@ -249,9 +249,22 @@ body.active .setup { display: none; }
     g.gain.linearRampToValueAtTime(0, t + dur);
     o.connect(g).connect(bus); o.start(t); o.stop(t + dur + 0.02);
   }
-  const runBeep  = t => { tone(t, 1250, 0.2); tone(t + 0.28, 1650, 0.32); };
-  const walkBeep = t => { tone(t, 620, 0.75, 0.95); };
-  const tick     = t => { tone(t, 900, 0.07, 0.45, "sine"); };
+  // Bell-like chime: a sine fundamental with two quiet overtones and a fast-attack, long exponential decay.
+  // Smooth like a bell but still carries over footsteps and road noise.
+  function bell(t, freq, dur, vol = 0.9) {
+    [[1, 1], [2, 0.3], [3, 0.1]].forEach(([mult, amp]) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine"; o.frequency.value = freq * mult;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(vol * amp, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur / mult);
+      o.connect(g).connect(bus); o.start(t); o.stop(t + dur + 0.05);
+    });
+  }
+  // Rising G5 -> C6 -> E6 means go; a slower falling C6 -> E5 pair means ease off.
+  const runBeep  = t => { bell(t, 784, 1.0); bell(t + 0.17, 1047, 1.0); bell(t + 0.34, 1319, 1.3); };
+  const walkBeep = t => { bell(t, 1047, 1.1); bell(t + 0.3, 659, 1.6); };
+  const tick     = t => { bell(t, 1319, 0.18, 0.35); };
 
   // Silent looping <audio> gives Chrome a media session, which helps keep the tab alive with the screen off.
   function silentWavUrl() {
